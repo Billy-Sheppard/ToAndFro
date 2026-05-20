@@ -12,6 +12,17 @@ fn should_reject(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| attr.path().is_ident("reject"))
 }
 
+fn renamed(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("rename"))
+        .map(|attr| {
+            attr.parse_args::<syn::LitStr>()
+                .expect("#[rename(...)] expects a string")
+                .value()
+        })
+}
+
 fn check_case(args: TokenStream) {
     let mut args = args.into_iter();
     if args.clone().count() != 1 {
@@ -45,7 +56,9 @@ fn map_variant(
                 match_supplied_casing(case_attr, &variant.attrs).unwrap_or(default_caser.clone());
 
             let variant_name = &variant.ident;
-            let cased_name = caser(variant_name.to_string().as_str());
+
+            let cased_name =
+                renamed(&variant.attrs).unwrap_or_else(|| caser(variant_name.to_string().as_str()));
 
             cb(variant_name, cased_name)
         })
@@ -65,7 +78,7 @@ fn preamble(input: DeriveInput) -> (DeriveInput, Ident, DataEnum) {
 /// Generate automatic implementations of `FromStr`, `TryFrom<str-like>`, `Display`, `Debug`, `PartialEq`, `Eq` and `Hash` for an enum.
 #[proc_macro_derive(
     ToAndFro,
-    attributes(input_case, output_case, default, reject, casing, serde)
+    attributes(input_case, output_case, default, reject, casing, serde, rename)
 )]
 pub fn tf_derive(input: TokenStream) -> TokenStream {
     let (input, name, data) = preamble(parse_macro_input!(input as DeriveInput));
@@ -413,6 +426,16 @@ pub fn reject(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn serde(args: TokenStream, input: TokenStream) -> TokenStream {
     if !args.is_empty() {
         panic!("#[serde] does not take arguments");
+    }
+
+    input
+}
+
+/// Override the generated string representation for a variant.
+#[proc_macro_attribute]
+pub fn rename(args: TokenStream, input: TokenStream) -> TokenStream {
+    if args.clone().into_iter().count() != 1 {
+        panic!("#[rename(\"...\")] takes one string argument");
     }
 
     input
